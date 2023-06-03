@@ -5,6 +5,9 @@ version = 3
 [[package]]
 name = "engine"
 version = "0.1.0"
+dependencies = [
+ "micromath",
+]
 
 [[package]]
 name = "firmware"
@@ -13,3 +16,9 @@ version = "0.1.0"
 [[package]]
 name = "interface"
 version = "0.1.0"
+
+[[package]]
+name = "micromath"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39617bc909d64b068dcffd0e3e31679195b5576d0c83fadc52690268cc2b2b55"
