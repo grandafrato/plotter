@@ -58,6 +58,32 @@ impl PointPolar {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Shape<'a> {
+    Arc {
+        point: PointPolar,
+        distance: Distance,
+    },
+    Polygon(&'a [PointPolar]),
+}
+
+impl<'a> Shape<'a> {
+    pub fn circle(radius: f32) -> Result<Self, CoordinateOutOfBoundsError> {
+        let point = PointPolar::try_new(radius, 0.0)?;
+
+        Ok(Self::Arc {
+            point,
+            distance: Distance::Full,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Distance {
+    Full,
+    Partial(f32),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +157,19 @@ mod tests {
             Err(CoordinateOutOfBoundsError::AboveMaximumRadius(_)) => (),
             _ => panic!("Radius isn't above maximum!"),
         }
+    }
+
+    #[test]
+    fn test_make_circle() -> Result<(), CoordinateOutOfBoundsError> {
+        let radius = MIN_RADIUS + 7.0;
+        assert_eq!(
+            Shape::circle(radius)?,
+            Shape::Arc {
+                point: PointPolar::try_new(radius, 0.0)?,
+                distance: Distance::Full
+            }
+        );
+
+        Ok(())
     }
 }
