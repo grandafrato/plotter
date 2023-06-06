@@ -1,6 +1,8 @@
 #![no_std]
 
 #[allow(unused)]
+use core::f32::consts::PI;
+#[allow(unused)]
 use micromath::F32Ext;
 
 pub const MIN_RADIUS: f32 = 14.0;
@@ -36,11 +38,12 @@ impl PointCartesian {
 pub enum CoordinateOutOfBoundsError {
     BelowMinimumRadius(f32),
     AboveMaximumRadius(f32),
+    CrossesRotationMax,
 }
 
 /// Represents points in a polar space. `radius` is in milimeters and `theta` is
 /// in degrees.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PointPolar {
     radius: f32,
     theta: f32,
@@ -62,24 +65,38 @@ impl PointPolar {
 pub enum Shape<'a> {
     Arc {
         point: PointPolar,
-        distance: Distance,
+        rotation: Rotation,
     },
     Polygon(&'a [PointPolar]),
 }
 
 impl<'a> Shape<'a> {
+    /// Returns an arc with a starting point of zero theta.
     pub fn circle(radius: f32) -> Result<Self, CoordinateOutOfBoundsError> {
         let point = PointPolar::try_new(radius, 0.0)?;
 
         Ok(Self::Arc {
             point,
-            distance: Distance::Full,
+            rotation: Rotation::Full,
         })
+    }
+
+    pub fn arc(point: PointPolar, distance: f32) -> Result<Self, CoordinateOutOfBoundsError> {
+        let angle = (distance / point.radius).to_degrees() + point.theta;
+
+        if angle > 360.0 {
+            Err(CoordinateOutOfBoundsError::CrossesRotationMax)
+        } else {
+            Ok(Self::Arc {
+                point,
+                rotation: Rotation::Partial(angle),
+            })
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Distance {
+pub enum Rotation {
     Full,
     Partial(f32),
 }
@@ -166,7 +183,21 @@ mod tests {
             Shape::circle(radius)?,
             Shape::Arc {
                 point: PointPolar::try_new(radius, 0.0)?,
-                distance: Distance::Full
+                rotation: Rotation::Full
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_make_arc() -> Result<(), CoordinateOutOfBoundsError> {
+        let point = PointPolar::try_new(MIN_RADIUS, 2.0)?;
+        assert_eq!(
+            Shape::arc(point.clone(), PI * MIN_RADIUS)?,
+            Shape::Arc {
+                point,
+                rotation: Rotation::Partial(182.0)
             }
         );
 
