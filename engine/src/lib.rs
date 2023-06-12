@@ -1,5 +1,6 @@
 #![no_std]
 
+#[allow(unused)]
 use micromath::F32Ext;
 
 pub const MIN_RADIUS: f32 = 14.0;
@@ -34,7 +35,7 @@ pub enum OutOfBoundsError {
     BelowMinimumRadius { radius: f32, theta: f32 },
     AboveMaximumRadius { radius: f32, theta: f32 },
     CrossesRotationMax,
-    CrossesDeadZone(PointPolar),
+    CrossesDeadZone(f32),
 }
 
 /// Represents points in a polar space. `radius` is in milimeters and `theta` is
@@ -99,6 +100,43 @@ pub enum Rotation {
 
 #[derive(Debug, PartialEq)]
 pub struct Segment(PointCartesian, PointCartesian);
+
+impl Segment {
+    pub fn try_new(
+        point_a: PointCartesian,
+        point_b: PointCartesian,
+    ) -> Result<Self, OutOfBoundsError> {
+        Self(point_a, point_b)
+            .check_rotation_max()?
+            .check_dead_zone()
+    }
+
+    fn check_rotation_max(self) -> Result<Self, OutOfBoundsError> {
+        let (point_a, point_b) = (&self.0, &self.1);
+
+        if !point_a.x.is_sign_negative() && !point_b.x.is_sign_negative() {
+            if point_a.y.is_sign_negative() ^ point_b.y.is_sign_negative() {
+                return Err(OutOfBoundsError::CrossesRotationMax);
+            }
+        }
+
+        Ok(self)
+    }
+
+    fn check_dead_zone(self) -> Result<Self, OutOfBoundsError> {
+        let (point_a, point_b) = (&self.0, &self.1);
+
+        let distance = ((point_a.x - point_b.x) * point_a.y + (point_b.y - point_a.y) * point_a.x)
+            .abs()
+            / ((point_b.x - point_a.x).powi(2) + (point_a.y - point_b.y).powi(2)).sqrt();
+
+        if distance < MIN_RADIUS {
+            return Err(OutOfBoundsError::CrossesDeadZone(distance));
+        }
+
+        Ok(self)
+    }
+}
 
 #[cfg(test)]
 mod tests {
