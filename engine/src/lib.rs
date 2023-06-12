@@ -1,12 +1,11 @@
 #![no_std]
 
-#[allow(unused)]
-use core::f32::consts::PI;
-#[allow(unused)]
 use micromath::F32Ext;
 
 pub const MIN_RADIUS: f32 = 14.0;
 pub const MAX_RADIUS: f32 = 31.0;
+pub const MID_RADIUS: f32 = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) / 2.0;
+pub const RESOLUTION: usize = 1000;
 
 /// Represents points in a cartesian space. `x` and `y` are in milimeters.
 #[derive(Debug, PartialEq)]
@@ -21,13 +20,9 @@ impl PointCartesian {
     }
 
     /// Converts the cratesian point to an equivalent polar point.
-    pub fn to_polar(&self) -> Result<PointPolar, CoordinateOutOfBoundsError> {
+    pub fn as_polar(&self) -> Result<PointPolar, OutOfBoundsError> {
         let radius = self.x.hypot(self.y);
-        let mut theta = self.y.atan2(self.x).to_degrees();
-
-        if theta.is_sign_negative() {
-            theta += 360.0;
-        }
+        let theta = self.y.atan2(self.x);
 
         PointPolar::try_new(radius, theta)
     }
@@ -35,10 +30,11 @@ impl PointCartesian {
 
 /// Returned if a coordinate is below `MIN_RADIUS` or above `MAX_RADIUS`.
 #[derive(Debug, PartialEq)]
-pub enum CoordinateOutOfBoundsError {
-    BelowMinimumRadius(f32),
-    AboveMaximumRadius(f32),
+pub enum OutOfBoundsError {
+    BelowMinimumRadius { radius: f32, theta: f32 },
+    AboveMaximumRadius { radius: f32, theta: f32 },
     CrossesRotationMax,
+    CrossesDeadZone(PointPolar),
 }
 
 /// Represents points in a polar space. `radius` is in milimeters and `theta` is
@@ -50,11 +46,11 @@ pub struct PointPolar {
 }
 
 impl PointPolar {
-    fn try_new(radius: f32, theta: f32) -> Result<Self, CoordinateOutOfBoundsError> {
+    fn try_new(radius: f32, theta: f32) -> Result<Self, OutOfBoundsError> {
         if radius > MAX_RADIUS {
-            Err(CoordinateOutOfBoundsError::AboveMaximumRadius(radius))
+            Err(OutOfBoundsError::AboveMaximumRadius { radius, theta })
         } else if radius < MIN_RADIUS {
-            Err(CoordinateOutOfBoundsError::BelowMinimumRadius(radius))
+            Err(OutOfBoundsError::BelowMinimumRadius { radius, theta })
         } else {
             Ok(Self { radius, theta })
         }
@@ -67,12 +63,12 @@ pub enum Shape<'a> {
         point: PointPolar,
         rotation: Rotation,
     },
-    Polygon(&'a [PointPolar]),
+    Polygon(&'a [PointCartesian]),
 }
 
 impl<'a> Shape<'a> {
     /// Returns an arc with a starting point of zero theta.
-    pub fn circle(radius: f32) -> Result<Self, CoordinateOutOfBoundsError> {
+    pub fn circle(radius: f32) -> Result<Self, OutOfBoundsError> {
         let point = PointPolar::try_new(radius, 0.0)?;
 
         Ok(Self::Arc {
@@ -81,11 +77,11 @@ impl<'a> Shape<'a> {
         })
     }
 
-    pub fn arc(point: PointPolar, distance: f32) -> Result<Self, CoordinateOutOfBoundsError> {
-        let angle = (distance / point.radius).to_degrees() + point.theta;
+    pub fn arc(point: PointPolar, arc_length: f32) -> Result<Self, OutOfBoundsError> {
+        let angle = (arc_length / point.radius).to_degrees() + point.theta;
 
         if angle > 360.0 {
-            Err(CoordinateOutOfBoundsError::CrossesRotationMax)
+            Err(OutOfBoundsError::CrossesRotationMax)
         } else {
             Ok(Self::Arc {
                 point,
@@ -101,9 +97,13 @@ pub enum Rotation {
     Partial(f32),
 }
 
+#[derive(Debug, PartialEq)]
+pub struct Segment(PointCartesian, PointCartesian);
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::f32::consts::PI;
 
     #[test]
     fn test_new_point_cartesian() {
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cartesian_to_polar() -> Result<(), CoordinateOutOfBoundsError> {
+    fn test_cartesian_to_polar() -> Result<(), OutOfBoundsError> {
         let points = [
             PointCartesian::new(15.0, 0.0),
             PointCartesian::new(0.0, 15.0),
@@ -121,31 +121,31 @@ mod tests {
         ];
 
         assert_eq!(
-            points[0].to_polar()?,
+            points[0].as_polar()?,
             PointPolar {
                 radius: 15.0,
                 theta: 0.0
             }
         );
         assert_eq!(
-            points[1].to_polar()?,
+            points[1].as_polar()?,
             PointPolar {
                 radius: 15.0,
-                theta: 90.0
+                theta: 0.5 * PI,
             }
         );
         assert_eq!(
-            points[2].to_polar()?,
+            points[2].as_polar()?,
             PointPolar {
                 radius: 15.0,
-                theta: 180.0
+                theta: PI,
             }
         );
         assert_eq!(
-            points[3].to_polar()?,
+            points[3].as_polar()?,
             PointPolar {
                 radius: 15.0,
-                theta: 270.0
+                theta: -0.5 * PI,
             }
         );
 
@@ -155,11 +155,11 @@ mod tests {
     #[test]
     fn test_min_radius() {
         match PointPolar::try_new(MIN_RADIUS - 1.0, 0.0) {
-            Err(CoordinateOutOfBoundsError::BelowMinimumRadius(_)) => (),
+            Err(OutOfBoundsError::BelowMinimumRadius { .. }) => (),
             _ => panic!("Radius isn't below minimum!"),
         }
-        match PointCartesian::new(MIN_RADIUS / 2.0, MIN_RADIUS / 2.0).to_polar() {
-            Err(CoordinateOutOfBoundsError::BelowMinimumRadius(_)) => (),
+        match PointCartesian::new(MIN_RADIUS / 2.0, MIN_RADIUS / 2.0).as_polar() {
+            Err(OutOfBoundsError::BelowMinimumRadius { .. }) => (),
             _ => panic!("Radius isn't below minimum!"),
         }
     }
@@ -167,17 +167,17 @@ mod tests {
     #[test]
     fn test_max_radius() {
         match PointPolar::try_new(MAX_RADIUS + 1.0, 0.0) {
-            Err(CoordinateOutOfBoundsError::AboveMaximumRadius(_)) => (),
+            Err(OutOfBoundsError::AboveMaximumRadius { .. }) => (),
             _ => panic!("Radius isn't above maximum!"),
         }
-        match PointCartesian::new(MAX_RADIUS, MAX_RADIUS).to_polar() {
-            Err(CoordinateOutOfBoundsError::AboveMaximumRadius(_)) => (),
+        match PointCartesian::new(MAX_RADIUS, MAX_RADIUS).as_polar() {
+            Err(OutOfBoundsError::AboveMaximumRadius { .. }) => (),
             _ => panic!("Radius isn't above maximum!"),
         }
     }
 
     #[test]
-    fn test_make_circle() -> Result<(), CoordinateOutOfBoundsError> {
+    fn test_make_circle() -> Result<(), OutOfBoundsError> {
         let radius = MIN_RADIUS + 7.0;
         assert_eq!(
             Shape::circle(radius)?,
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_make_arc() -> Result<(), CoordinateOutOfBoundsError> {
+    fn test_make_arc() -> Result<(), OutOfBoundsError> {
         let point = PointPolar::try_new(MIN_RADIUS, 2.0)?;
         assert_eq!(
             Shape::arc(point.clone(), PI * MIN_RADIUS)?,
@@ -202,5 +202,51 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_new_segment() -> Result<(), OutOfBoundsError> {
+        let segment = Segment::try_new(
+            PointCartesian::new(MID_RADIUS, 0.0),
+            PointCartesian::new(0.0, MID_RADIUS),
+        )?;
+
+        assert_eq!(
+            segment,
+            Segment(
+                PointCartesian {
+                    x: MID_RADIUS,
+                    y: 0.0
+                },
+                PointCartesian {
+                    x: 0.0,
+                    y: MID_RADIUS
+                }
+            )
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_segment_out_of_bounds() {
+        let segment_crosses_max_rot = Segment::try_new(
+            PointCartesian::new(MID_RADIUS, 1.0),
+            PointCartesian::new(MID_RADIUS, -1.0),
+        );
+        let segment_crosses_dead_zone = Segment::try_new(
+            PointCartesian::new(-MID_RADIUS, MIN_RADIUS - 1.0),
+            PointCartesian::new(MID_RADIUS, MIN_RADIUS - 1.0),
+        );
+
+        assert_eq!(
+            segment_crosses_max_rot,
+            Err(OutOfBoundsError::CrossesRotationMax)
+        );
+        match segment_crosses_dead_zone {
+            Err(OutOfBoundsError::CrossesDeadZone(_)) => (),
+            Ok(_) => panic!("Doesn't cross dead zone."),
+            _ => panic!("Other failure."),
+        }
     }
 }
