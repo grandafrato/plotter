@@ -61,7 +61,7 @@ impl PointPolar {
 
 #[derive(Debug, PartialEq)]
 pub enum Shape<'a> {
-    Arc {
+    CenterArc {
         point: PointPolar,
         rotation: Rotation,
     },
@@ -73,19 +73,19 @@ impl<'a> Shape<'a> {
     pub fn circle(radius: f32) -> Result<Self, OutOfBoundsError> {
         let point = PointPolar::try_new(radius, 0.0)?;
 
-        Ok(Self::Arc {
+        Ok(Self::CenterArc {
             point,
             rotation: Rotation::Full,
         })
     }
 
-    pub fn arc(point: PointPolar, arc_length: f32) -> Result<Self, OutOfBoundsError> {
+    pub fn center_arc(point: PointPolar, arc_length: f32) -> Result<Self, OutOfBoundsError> {
         let angle = arc_length + point.theta;
 
         if angle > 2.0 * PI {
             Err(OutOfBoundsError::CrossesRotationMax)
         } else {
-            Ok(Self::Arc {
+            Ok(Self::CenterArc {
                 point,
                 rotation: Rotation::Partial(angle),
             })
@@ -240,7 +240,7 @@ mod tests {
         let radius = MIN_RADIUS + 7.0;
         assert_eq!(
             Shape::circle(radius)?,
-            Shape::Arc {
+            Shape::CenterArc {
                 point: PointPolar::try_new(radius, 0.0)?,
                 rotation: Rotation::Full
             }
@@ -253,8 +253,8 @@ mod tests {
     fn test_make_arc() -> Result<(), OutOfBoundsError> {
         let point = PointPolar::try_new(MIN_RADIUS, 2.0)?;
         assert_eq!(
-            Shape::arc(point.clone(), PI)?,
-            Shape::Arc {
+            Shape::center_arc(point.clone(), PI)?,
+            Shape::CenterArc {
                 point,
                 rotation: Rotation::Partial(PI + 2.0)
             }
