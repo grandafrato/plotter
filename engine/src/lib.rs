@@ -1,12 +1,13 @@
 #![no_std]
 
+use core::f32::consts::PI;
+
 #[allow(unused)]
 use micromath::F32Ext;
 
 pub const MIN_RADIUS: f32 = 14.0;
 pub const MAX_RADIUS: f32 = 31.0;
 pub const MID_RADIUS: f32 = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) / 2.0;
-pub const RESOLUTION: usize = 1000;
 
 /// Represents points in a cartesian space. `x` and `y` are in milimeters.
 #[derive(Debug, PartialEq)]
@@ -79,9 +80,9 @@ impl<'a> Shape<'a> {
     }
 
     pub fn arc(point: PointPolar, arc_length: f32) -> Result<Self, OutOfBoundsError> {
-        let angle = (arc_length / point.radius).to_degrees() + point.theta;
+        let angle = arc_length + point.theta;
 
-        if angle > 360.0 {
+        if angle > 2.0 * PI {
             Err(OutOfBoundsError::CrossesRotationMax)
         } else {
             Ok(Self::Arc {
@@ -135,6 +136,26 @@ impl Segment {
         }
 
         Ok(self)
+    }
+
+    pub fn step(&self, distance: f32) -> Option<PointPolar> {
+        let step_distance = self.distance();
+        if !(0.0..=step_distance).contains(&distance) {
+            return None;
+        }
+        let (point_a, point_b) = (&self.0, &self.1);
+
+        let x = point_a.x - distance * (point_a.x - point_b.x) / step_distance;
+        let y = point_a.y - distance * (point_a.y - point_b.y) / step_distance;
+
+        // Points within segment are assumed to have been checked for being within bounds.
+        Some(PointCartesian::new(x, y).as_polar().unwrap())
+    }
+
+    fn distance(&self) -> f32 {
+        let (point_a, point_b) = (&self.0, &self.1);
+
+        ((point_b.x - point_a.x).powi(2) + (point_b.y - point_a.y).powi(2)).sqrt()
     }
 }
 
@@ -232,10 +253,10 @@ mod tests {
     fn test_make_arc() -> Result<(), OutOfBoundsError> {
         let point = PointPolar::try_new(MIN_RADIUS, 2.0)?;
         assert_eq!(
-            Shape::arc(point.clone(), PI * MIN_RADIUS)?,
+            Shape::arc(point.clone(), PI)?,
             Shape::Arc {
                 point,
-                rotation: Rotation::Partial(182.0)
+                rotation: Rotation::Partial(PI + 2.0)
             }
         );
 
@@ -286,5 +307,36 @@ mod tests {
             Ok(_) => panic!("Doesn't cross dead zone."),
             _ => panic!("Other failure."),
         }
+    }
+
+    #[test]
+    fn test_segment_distance() -> Result<(), OutOfBoundsError> {
+        let segment = Segment::try_new(
+            PointCartesian::new(MIN_RADIUS, MIN_RADIUS),
+            PointCartesian::new(-MIN_RADIUS, MIN_RADIUS),
+        )?;
+
+        assert_eq!(MIN_RADIUS * 2.0, segment.distance());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_segment_step() -> Result<(), OutOfBoundsError> {
+        let (point_a, point_b) = (
+            PointCartesian::new(MIN_RADIUS, MIN_RADIUS),
+            PointCartesian::new(-MIN_RADIUS, MIN_RADIUS),
+        );
+        let (polar_a, polar_b) = (point_a.as_polar()?, point_b.as_polar()?);
+        let polar_middle = PointPolar::try_new(MIN_RADIUS, 0.5 * PI)?;
+        let segment = Segment::try_new(point_a, point_b)?;
+
+        assert_eq!(Some(polar_a), segment.step(0.0));
+        assert_eq!(Some(polar_b), segment.step(MIN_RADIUS * 2.0));
+        assert_eq!(Some(polar_middle), segment.step(MIN_RADIUS));
+        assert_eq!(None, segment.step(-1.0));
+        assert_eq!(None, segment.step(MIN_RADIUS * 2.0 + 1.0));
+
+        Ok(())
     }
 }
